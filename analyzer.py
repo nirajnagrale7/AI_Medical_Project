@@ -1,5 +1,3 @@
-# analyzer.py (Robust Version with Fallback)
-
 import re
 import os
 import shutil

@@ -1,4 +1,3 @@
-# test_patterns.py
 import re
 
 # Your improved patterns

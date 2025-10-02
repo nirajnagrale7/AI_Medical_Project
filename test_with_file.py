@@ -1,4 +1,3 @@
-# test_with_file.py
 from analyzer import analyze_text
 
 # Read and analyze the sample report
