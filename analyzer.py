@@ -57,62 +57,70 @@ patterns = {
 
 def process_uploaded_pdf(file):
     """
-    Processes an uploaded PDF, handling both text-based and image-based (scanned) files.
+    Processes an uploaded PDF with multiple fallback strategies.
     """
     try:
-        # Read the file into memory once
         pdf_bytes = file.read()
         
-        # --- STRATEGY 1: Try direct text extraction (for text-based PDFs) ---
+        # Strategy 1: Try PyPDF2 text extraction first
         try:
             pdf_file_obj = io.BytesIO(pdf_bytes)
             pdf_reader = PyPDF2.PdfReader(pdf_file_obj)
-            text_from_pypdf2 = ""
+            text = ""
             for page in pdf_reader.pages:
                 page_text = page.extract_text()
                 if page_text:
-                    text_from_pypdf2 += page_text + "\n"
+                    text += page_text + "\n"
             
-            # If we got a good amount of text, we'll use it
-            if len(text_from_pypdf2.strip()) > 50:
-                print("PDF appears to be text-based. Using direct extraction.")
-                return text_from_pypdf2
-            else:
-                print("Text extraction yielded little content. May be a scanned PDF.")
+            if len(text.strip()) > 50:  # Minimum text threshold
+                print("Successfully extracted text directly from PDF")
+                return text
         except Exception as e:
-            print(f"Direct text extraction failed: {e}")
-            pass
-
-        # --- STRATEGY 2: Fallback to OCR (for scanned/image-based PDFs) ---
-        if POPPLER_AVAILABLE:
-            if not TESSERACT_AVAILABLE:
-                return (
-                    "OCR requires Tesseract OCR, which is not installed or not on PATH. "
-                    "On macOS, install with: brew install tesseract"
-                )
-            print("Attempting OCR processing with poppler...")
+            print(f"Direct text extraction failed: {str(e)[:100]}...")
+        
+        # Strategy 2: Try pdf2image with poppler if available
+        if POPPLER_AVAILABLE and TESSERACT_AVAILABLE:
             try:
+                print("Attempting OCR with pdf2image...")
                 images = convert_from_bytes(pdf_bytes)
-                ocr_text = ""
+                text = ""
                 for i, image in enumerate(images):
                     print(f"Processing page {i+1} with OCR...")
-                    page_text = pytesseract.image_to_string(image, lang="eng", config="--psm 6")
-                    ocr_text += page_text + "\n"
-                return ocr_text
-            except TesseractNotFoundError:
-                return (
-                    "Tesseract OCR not found. Install it and ensure it's in PATH. "
-                    "On macOS: brew install tesseract"
-                )
+                    text += pytesseract.image_to_string(image, lang="eng", config="--psm 6") + "\n"
+                return text
             except Exception as e:
-                print(f"OCR with poppler failed: {e}")
-                return "Could not process PDF. It may be scanned or password-protected."
-        else:
-            print("Poppler not available. Cannot process scanned PDFs.")
-            return "Could not process PDF. It may be scanned, and poppler is not installed."
-
+                print(f"PDF OCR failed: {str(e)[:100]}...")
+        
+        # Strategy 3: Fallback to pdfplumber (alternative to PyPDF2)
+        try:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                text = ""
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n"
+                if len(text.strip()) > 50:
+                    print("Successfully extracted text with pdfplumber")
+                    return text
+        except ImportError:
+            print("pdfplumber not available")
+        except Exception as e:
+            print(f"pdfplumber extraction failed: {str(e)[:100]}...")
+        
+        # Strategy 4: Final fallback - try to read as image if single-page
+        if TESSERACT_AVAILABLE:
+            try:
+                print("Attempting to read PDF as image...")
+                with Image.open(io.BytesIO(pdf_bytes)) as img:
+                    return pytesseract.image_to_string(img, lang="eng", config="--psm 6")
+            except Exception as e:
+                print(f"Image read failed: {str(e)[:100]}...")
+        
+        return "Could not extract text from PDF. The file may be scanned, password-protected, or corrupted."
+    
     except Exception as e:
-        return f"A critical error occurred while processing the PDF: {e}"
+        return f"Critical error processing PDF: {str(e)[:200]}"
 
 def extract_text_from_image(file):
     """Extracts text from an uploaded image file using Tesseract OCR."""
