@@ -197,6 +197,22 @@ python test_patterns.py
 
 ---
 
+### Your project does use AI/machine learning (plus other practical tools) — let’s break it down by part:
+
+#### Symptom Checker (Explicit AI/Machine Learning Model)
+- The symptom checker uses a Decision Tree Classifier (a type of supervised machine learning model, which counts as AI!) that you trained in your model.py file:
+You used the disease-symptom dataset (Training.csv) to teach the model to recognize patterns: which combinations of symptoms map to which medical conditions.
+
+- The trained model is saved as disease_model.pkl, and you load it in app.py to make predictions when a user selects symptoms. This is classic predictive AI/ML: the model generalizes from its training data to guess at conditions for new, unseen symptom inputs.
+
+#### Medical Report Analyzer (Uses AI/ML indirectly, plus rule-based tools)
+- Tesseract OCR (text extraction from images/PDFs): The tool that reads text from your scanned images/PDFs (Tesseract) uses machine learning (trained neural networks for character recognition, a form of computer vision AI) under the hood to turn visual data (the image of text) into readable text.
+
+- Current value extraction (rule-based, for now): The part that finds values like hemoglobin or PCV uses regex patterns (simple rule-based logic, not custom AI) — but you could upgrade this later to use medical NLP AI models (like BioBERT, a model fine-tuned for medical text) if you wanted to handle more complex/varied report formats reliably.
+In short: your symptom checker uses a clear, trained AI/ML model, and the report analyzer relies on an AI-powered OCR tool (plus rule-based extraction right now).
+
+---
+
 ## How the Analyzer Works
 
 - For PDFs:
