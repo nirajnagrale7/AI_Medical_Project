@@ -134,6 +134,88 @@ with tab2:
                     
                     if result['status'] == "Abnormal":
                         st.error(f"**Warning:** Your **{key.replace('_', ' ').title()}** level is outside the normal range for {gender_used}.")
+
+                # Add recommendations section
+                if 'display_results' in locals() and display_results:
+                    st.subheader("Doctor-Recommended Precautions & General Guidance")
+                    
+                    abnormal_params = {k: v for k, v in display_results.items() if v['status'] == "Abnormal"}
+                    
+                    if abnormal_params:
+                        for param, result in abnormal_params.items():
+                            st.write(f"### {param.replace('_', ' ').title()} (Abnormal)")
+                            st.write(f"**Your Value**: {result['value']} {result['unit']}")
+                            st.write(f"**Normal Range**: {result['normal_range']}")
+                            
+                            # Tailored advice based on parameter
+                            if param == "hemoglobin":
+                                st.write("""
+                                #### Precautions:
+                                - Eat iron-rich foods (spinach, red meat, lentils) + vitamin C (oranges) to boost absorption.  
+                                - Avoid tea/coffee with meals (reduces iron uptake).  
+                                - Prioritize rest and avoid overexertion.  
+                                
+                                #### Medicine (General, Consult Doctor First):
+                                - Iron supplements (e.g., ferrous sulfate) for iron-deficiency anemia.  
+                                """)
+                            elif param == "wbc_count":
+                                st.write("""
+                                #### Precautions:
+                                - Drink plenty of water to flush toxins.  
+                                - Rest and avoid strenuous activity.  
+                                - Eat anti-inflammatory foods (turmeric, ginger, leafy greens).  
+                                
+                                #### Medicine (General, Consult Doctor First):
+                                - Antibiotics (if bacterial infection) – *never self-prescribe*; get a diagnosis.  
+                                - Paracetamol for fever/pain (follow dosage).  
+                                """)
+                            elif param == "platelet_count":
+                                st.write("""
+                                #### Precautions:
+                                - Avoid contact sports, gardening (thorns), or sharp objects (risk of bleeding).  
+                                - Eat vitamin K (spinach) and folate (beans) to support platelet production.  
+                                
+                                #### Medicine (General, Consult Doctor First):
+                                - Corticosteroids (e.g., prednisone) for autoimmune causes (prescribed by a hematologist).  
+                                - Platelet transfusions (severe cases, emergency use).  
+                                """)
+                            elif param == "glucose":
+                                if "high" in result['status'].lower():
+                                    st.write("""
+                                    #### Precautions:
+                                    - Limit refined carbs (sugar, white bread); choose whole grains, veggies, lean proteins.  
+                                    - Exercise regularly (e.g., walking) to lower blood sugar.  
+                                    - Stay hydrated (water helps flush excess sugar).  
+                                    
+                                    #### Medicine (General, Consult Doctor First):
+                                    - Metformin (prescription) for type 2 diabetes.  
+                                    - OTC: Cinnamon supplements (limited evidence; consult doctor).  
+                                    """)
+                                else:  # Low glucose
+                                    st.write("""
+                                    #### Precautions:
+                                    - Eat glucose tablets, fruit juice, or honey to raise blood sugar immediately.  
+                                    - Avoid skipping meals; eat regular, balanced meals.  
+                                    
+                                    #### Medicine (General, Consult Doctor First):
+                                    - Glucagon (emergency injection for severe hypoglycemia) – prescribed if at risk.  
+                                    """)
+                            else:
+                                st.write("#### Precautions:")
+                                st.write("Consult your doctor for personalized advice (cause of abnormality matters!).")  
+                                st.write("#### Medicine:")
+                                st.write("Treatment depends on the underlying condition – seek professional diagnosis.")  
+                    else:
+                        st.info("No abnormal parameters detected! Continue with regular health check-ups.")
+                
+                # Add disclaimer
+                st.warning("""
+                **Important Disclaimer**:  
+                These are general guidelines, not a substitute for professional medical advice.  
+                Abnormal results require a doctor’s evaluation to determine the root cause (e.g., anemia may stem from iron deficiency, chronic disease, or other issues).  
+                Always consult a doctor for personalized treatment and medication.  
+                """)
+                        
 st.sidebar.header("About")
 st.sidebar.info(
     "This AI assistant combines a symptom checker with an intelligent medical report analyzer. "

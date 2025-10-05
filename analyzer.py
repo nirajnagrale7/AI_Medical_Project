@@ -89,7 +89,6 @@ patterns = {
     "mchc":           r"(?:mchc)[^\d\n]*?([\d\.]+)",
     "pcv":            r"(?:packed\s*cell\s*volume\s*KATEX_INLINE_OPENpcvKATEX_INLINE_CLOSE|pcv)[^\d\n]*?([\d\.]+)",
     "rdw":            r"(?:rdw)[^\d\n]*?([\d\.]+)",
-    "age":            r'(?:age|patient\s*age|age:)\s*[:\-]?\s*(\d{1,3})'
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
