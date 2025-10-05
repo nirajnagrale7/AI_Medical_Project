@@ -1,310 +1,274 @@
 import re
+import io
 import os
 import shutil
 import warnings
+
 import PyPDF2
 import pytesseract
 from pytesseract import TesseractNotFoundError
 from PIL import Image
-import io
 
-# Try to import pdf2image, but handle if poppler is not available
+# Optional: PDF → image conversion
 try:
     from pdf2image import convert_from_bytes
     POPPLER_AVAILABLE = True
 except ImportError:
     POPPLER_AVAILABLE = False
-    print("Warning: Poppler not available. OCR fallback will be limited.")
+    warnings.warn("pdf2image/poppler not available. Scanned-PDF OCR will be limited.")
 
-# Try to locate Tesseract binary and configure pytesseract
+# Locate Tesseract
 TESSERACT_AVAILABLE = False
-try:
-    tesseract_candidates = [
-        shutil.which('tesseract'),
-        '/opt/homebrew/bin/tesseract',  # macOS (Apple Silicon) Homebrew
-        '/usr/local/bin/tesseract',     # macOS (Intel) Homebrew
-        '/usr/bin/tesseract',           # Linux
-        'C\\\\Program Files\\\	esseract-ocr\\\	esseract.exe',  # Windows (common)
-        'C:\\\\Program Files\\\\Tesseract-OCR\\\\tesseract.exe'  # Windows (common alternative)
-    ]
-    for cand in tesseract_candidates:
-        if cand and os.path.exists(cand):
-            pytesseract.pytesseract.tesseract_cmd = cand
-            TESSERACT_AVAILABLE = True
-            break
-    if not TESSERACT_AVAILABLE:
-        warnings.warn("Tesseract not found. OCR features will be disabled. Install via 'brew install tesseract' on macOS.")
-except Exception:
-    warnings.warn("Unable to verify Tesseract OCR installation; OCR features may not work.")
+for cand in [
+    shutil.which("tesseract"),
+    "/opt/homebrew/bin/tesseract",
+    "/usr/local/bin/tesseract",
+    "/usr/bin/tesseract",
+]:
+    if cand and os.path.exists(cand):
+        pytesseract.pytesseract.tesseract_cmd = cand
+        TESSERACT_AVAILABLE = True
+        break
+if not TESSERACT_AVAILABLE:
+    warnings.warn("Tesseract not found. Image OCR disabled. Install via: brew install tesseract")
 
-# --- NORMAL_RANGES ---
+# ─────────────────────────────────────────────────────────────────────────────
+# 1) Gender-specific reference ranges
 NORMAL_RANGES = {
-    'male': {
-        'hemoglobin': {'range': (13.5, 17.5), 'unit': 'g/dL'},
-        'rbc_count': {'range': (4.7, 6.1), 'unit': 'mill/cumm'},
-        'wbc_count': {'range': (4000, 11000), 'unit': 'cells/cumm'},
-        'platelet_count': {'range': (150000, 450000), 'unit': 'cells/cumm'},
-        'glucose': {'range': (70, 100), 'unit': 'mg/dL'},
-        'neutrophils': {'range': (50, 62), 'unit': '%'},
-        'lymphocytes': {'range': (20, 40), 'unit': '%'},
-        'eosinophils': {'range': (0, 6), 'unit': '%'},
-        'monocytes': {'range': (0, 10), 'unit': '%'},
-        'basophils': {'range': (0, 2), 'unit': '%'},
-        'mcv': {'range': (83, 101), 'unit': 'fL'},
-        'mch': {'range': (27, 32), 'unit': 'pg'},
-        'mchc': {'range': (32.5, 34.5), 'unit': 'g/dL'},
-        'pcv': {'range': (40, 50), 'unit': '%'}
+    "male": {
+        "hemoglobin":  ((13.5, 17.5), "g/dL"),
+        "rbc_count":   ((4.7, 6.1),   "mill/cumm"),
+        "wbc_count":   ((4000, 11000),"cells/cumm"),
+        "platelet_count": ((150000,450000),"cells/cumm"),
+        "glucose":     ((70, 100),    "mg/dL"),
+        "neutrophils": ((50, 62),     "%"),
+        "lymphocytes": ((20, 40),     "%"),
+        "eosinophils":((0, 6),       "%"),
+        "monocytes":  ((0, 10),      "%"),
+        "basophils":  ((0, 2),       "%"),
+        "mcv":        ((83, 101),    "fL"),
+        "mch":        ((27, 32),     "pg"),
+        "mchc":       ((32.5,34.5),  "g/dL"),
+        "pcv":        ((40, 50),     "%"),
+        "rdw":        ((11.6,14.0),  "%")
     },
-    'female': {
-        'hemoglobin': {'range': (12.0, 15.5), 'unit': 'g/dL'},
-        'rbc_count': {'range': (4.2, 5.4), 'unit': 'mill/cumm'},
-        'wbc_count': {'range': (4000, 11000), 'unit': 'cells/cumm'},
-        'platelet_count': {'range': (150000, 450000), 'unit': 'cells/cumm'},
-        'glucose': {'range': (70, 100), 'unit': 'mg/dL'},
-        'neutrophils': {'range': (50, 62), 'unit': '%'},
-        'lymphocytes': {'range': (20, 40), 'unit': '%'},
-        'eosinophils': {'range': (0, 6), 'unit': '%'},
-        'monocytes': {'range': (0, 10), 'unit': '%'},
-        'basophils': {'range': (0, 2), 'unit': '%'},
-        'mcv': {'range': (83, 101), 'unit': 'fL'},
-        'mch': {'range': (27, 32), 'unit': 'pg'},
-        'mchc': {'range': (32.5, 34.5), 'unit': 'g/dL'},
-        'pcv': {'range': (36, 46), 'unit': '%'}
+    "female": {
+        "hemoglobin":  ((12.0, 15.5), "g/dL"),
+        "rbc_count":   ((4.2, 5.4),   "mill/cumm"),
+        "wbc_count":   ((4000,11000), "cells/cumm"),
+        "platelet_count": ((150000,450000),"cells/cumm"),
+        "glucose":     ((70, 100),    "mg/dL"),
+        "neutrophils": ((50, 62),     "%"),
+        "lymphocytes": ((20, 40),     "%"),
+        "eosinophils":((0, 6),       "%"),
+        "monocytes":  ((0, 10),      "%"),
+        "basophils":  ((0, 2),       "%"),
+        "mcv":        ((83, 101),    "fL"),
+        "mch":        ((27, 32),     "pg"),
+        "mchc":       ((32.5,34.5),  "g/dL"),
+        "pcv":        ((36, 46),     "%"),
+        "rdw":        ((11.6,14.0),  "%")
     }
 }
 
-# --- IMPROVED PATTERNS ---
+# ─────────────────────────────────────────────────────────────────────────────
+# 2) Patterns to extract numeric values
 patterns = {
-    # Allows text/symbols/units between the key word and the number
-    'hemoglobin': r'(?:[Hh]emoglobin|[Hh][Gg][Bb]|[Hh]\.[Bb])[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    
-    # Allows text/symbols/units between the key word and the number
-    'rbc_count': r'(?:[Tt]otal\s*)?(?:[Rr][Bb][Cc]|[Rr]ed\s*[Bb]lood\s*[Cc]ell)\s*[Cc]ount[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    
-    # Allows text/symbols/units between the key word and the number
-    'wbc_count': r'(?:[Tt]otal\s*)?(?:[Ww][Bb][Cc]|[Ww]hite\s*[Bb]lood\s*[Cc]ell)\s*[Cc]ount[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    
-    # Allows text/symbols/units between the key word and the number
-    'platelet_count': r'(?:[Pp]latelet|[Pp][Ll][Tt])\s*[Cc]ount[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    
-    # Allows text/symbols/units between the key word and the number
-    'glucose': r'(?:[Gg]lucose|[Bb]lood\s*[Ss]ugar)[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    
-    # Added examples for differential counts found in your image sample:
-    'neutrophils': r'[Nn]eutrophils[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    'lymphocytes': r'[Ll]ymphocytes[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    'eosinophils': r'[Ee]osinophils[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    'monocytes': r'[Mm]onocytes[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    'basophils': r'[Bb]asophils[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    
-    # Added examples for indices found in your image sample:
-    'mcv': r'(?:[Mm][Cc][Vv]|[Mm]ean\s*[Cc]orpuscular\s*[Vv]olume)[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    'mch': r'(?:[Mm][Cc][Hh]|[Mm]ean\s*[Cc]orpuscular\s*[Hh]emoglobin)[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    'mchc': r'(?:[Mm][Cc][Hh][Cc]|[Mm]ean\s*[Cc]orpuscular\s*[Hh]emoglobin\s*[Cc]oncentration)[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
-    'pcv': r'(?:[Pp][Cc][Vv]|[Pp]acked\s*[Cc]ell\s*[Vv]olume)[^\d\n]*?([+-]?\d+(?:\.\d+)?)',
+    "hemoglobin":     r"(?:hemoglobin\s*KATEX_INLINE_OPENhbKATEX_INLINE_CLOSE|hb)[^\d\n]*?([\d\.]+)",
+    "rbc_count":      r"(?:total\s*rbc\s*count)[^\d\n]*?([\d\.]+)",
+    "wbc_count":      r"(?:total\s*wbc\s*count)[^\d\n]*?([\d\.]+)",
+    "platelet_count": r"(?:platelet\s*count)[^\d\n]*?([\d\.]+)",
+    "glucose":        r"(?:glucose|blood\s*sugar)[^\d\n]*?([\d\.]+)",
+    "neutrophils":    r"(?:neutrophils)[^\d\n]*?([\d\.]+)",
+    "lymphocytes":    r"(?:lymphocytes)[^\d\n]*?([\d\.]+)",
+    "eosinophils":    r"(?:eosinophils)[^\d\n]*?([\d\.]+)",
+    "monocytes":      r"(?:monocytes)[^\d\n]*?([\d\.]+)",
+    "basophils":      r"(?:basophils)[^\d\n]*?([\d\.]+)",
+    "mcv":            r"(?:mean\s*corpuscular\s*volume\s*KATEX_INLINE_OPENmcvKATEX_INLINE_CLOSE|mcv)[^\d\n]*?([\d\.]+)",
+    "mch":            r"(?:mch)[^\d\n]*?([\d\.]+)",
+    "mchc":           r"(?:mchc)[^\d\n]*?([\d\.]+)",
+    "pcv":            r"(?:packed\s*cell\s*volume\s*KATEX_INLINE_OPENpcvKATEX_INLINE_CLOSE|pcv)[^\d\n]*?([\d\.]+)",
+    "rdw":            r"(?:rdw)[^\d\n]*?([\d\.]+)",
+    "age":            r'(?:age|patient\s*age|age:)\s*[:\-]?\s*(\d{1,3})'
 }
 
-def process_uploaded_pdf(file):
-    """
-    Processes an uploaded PDF with multiple fallback strategies.
-    """
-    try:
-        pdf_bytes = file.read()
-        
-        # Strategy 1: Try PyPDF2 text extraction first
-        try:
-            pdf_file_obj = io.BytesIO(pdf_bytes)
-            pdf_reader = PyPDF2.PdfReader(pdf_file_obj)
-            text = ""
-            for page in pdf_reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-            
-            if len(text.strip()) > 50:  # Minimum text threshold
-                print("Successfully extracted text directly from PDF")
-                return text
-        except Exception as e:
-            print(f"Direct text extraction failed: {str(e)[:100]}...")
-        
-        # Strategy 2: Try pdf2image with poppler if available
-        if POPPLER_AVAILABLE and TESSERACT_AVAILABLE:
-            try:
-                print("Attempting OCR with pdf2image...")
-                images = convert_from_bytes(pdf_bytes)
-                text = ""
-                for i, image in enumerate(images):
-                    print(f"Processing page {i+1} with OCR...")
-                    text += pytesseract.image_to_string(image, lang="eng", config="--psm 6") + "\n"
-                return text
-            except Exception as e:
-                print(f"PDF OCR failed: {str(e)[:100]}...")
-        
-        # Strategy 3: Fallback to pdfplumber (alternative to PyPDF2)
-        try:
-            import pdfplumber
-            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                text = ""
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
-                if len(text.strip()) > 50:
-                    print("Successfully extracted text with pdfplumber")
-                    return text
-        except ImportError:
-            print("pdfplumber not available")
-        except Exception as e:
-            print(f"pdfplumber extraction failed: {str(e)[:100]}...")
-        
-        # Strategy 4: Final fallback - try to read as image if single-page
-        if TESSERACT_AVAILABLE:
-            try:
-                print("Attempting to read PDF as image...")
-                with Image.open(io.BytesIO(pdf_bytes)) as img:
-                    return pytesseract.image_to_string(img, lang="eng", config="--psm 6")
-            except Exception as e:
-                print(f"Image read failed: {str(e)[:100]}...")
-        
-        return "Could not extract text from PDF. The file may be scanned, password-protected, or corrupted."
-    
-    except Exception as e:
-        return f"Critical error processing PDF: {str(e)[:200]}"
+# ─────────────────────────────────────────────────────────────────────────────
+def detect_gender(text: str) -> str | None:
+    """Return 'male', 'female', or None if not found."""
+    t = text.lower()
+    male_patterns = [r"\bmale\b", r"sex[:\s]*m\b", r"patient\s+mr\.?"]
+    female_patterns = [r"\bfemale\b", r"sex[:\s]*f\b", r"patient\s+(mrs?|ms|miss)\.?"]
 
-def extract_text_from_image(file):
-    """Extracts text from an uploaded image file using Tesseract OCR."""
-    if not TESSERACT_AVAILABLE:
-        return (
-            "Tesseract OCR is not installed or not found on PATH. "
-            "On macOS, install with: brew install tesseract"
-        )
+    for p in male_patterns:
+        if re.search(p, t):
+            return "male"
+    for p in female_patterns:
+        if re.search(p, t):
+            return "female"
+    return None
+
+# ─────────────────────────────────────────────────────────────────────────────
+def extract_metadata(text: str) -> dict:
+    """
+    Extracts:
+      - patient_name
+      - pathology_name
+      - gender (via detect_gender)
+      - age
+    """
+    meta = {"patient_name": "N/A", "pathology_name": "N/A", "gender": None, "age": "N/A"}
+    lines = text.splitlines()
+
+    # Patient Name
+    for pat in [r"patient\s*[:\-]\s*([A-Z][\w\s\.]+)",
+                r"name\s*[:\-]\s*([A-Z][\w\s\.]+)"]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            meta["patient_name"] = m.group(1).strip().title()
+            break
+
+    # Pathology Lab
+    t_lower = text.lower()
+    for pat in [r"^([\w\s]+lab)", r"([\w\s]+pathology\s*lab)"]:
+        m = re.search(pat, t_lower, re.IGNORECASE | re.MULTILINE)
+        if m:
+            name = m.group(1).strip()
+            if len(name) > 5:
+                meta["pathology_name"] = name.title()
+                break
+
+    # Gender
+    meta["gender"] = detect_gender(text)
+    if meta["gender"] is None:
+        meta["gender"] = "Male"  # default
+
+    # Age
+    age_pat = r'(?:age|patient\s*age|age:)\s*[:\-]?\s*(\d{1,3})'
+    age_match = re.search(age_pat, text, re.IGNORECASE)
+    if age_match:
+        age_str = age_match.group(1)
+        try:
+            age = int(age_str)
+            if 1 <= age <= 120:  # Reasonable age range
+                meta["age"] = age
+        except ValueError:
+            pass
+        
+    return meta
+
+# ─────────────────────────────────────────────────────────────────────────────
+def process_uploaded_pdf(file) -> str:
+    """
+    Reads file-like PDF and returns plain text.
+    Tries:
+      1) PyPDF2
+      2) pdf2image → Tesseract OCR
+      3) pdfplumber
+      4) PIL → single-page OCR
+    """
+    data = file.read()
+
+    # 1: PyPDF2 text
     try:
-        # Normalize to bytes and open via PIL safely
-        if hasattr(file, 'read'):
-            data = file.read()
-        elif isinstance(file, (bytes, bytearray)):
-            data = bytes(file)
-        else:
-            # Assume a filesystem path
-            with open(file, 'rb') as f:
-                data = f.read()
-        image = Image.open(io.BytesIO(data)).convert("RGB")
-        text = pytesseract.image_to_string(image, lang="eng", config="--psm 6")
-        return text
-    except TesseractNotFoundError:
-        return (
-            "Tesseract OCR not found. Install it and ensure it's in PATH. "
-            "On macOS: brew install tesseract"
-        )
+        reader = PyPDF2.PdfReader(io.BytesIO(data))
+        txt = ""
+        for p in reader.pages:
+            t = p.extract_text() or ""
+            txt += t + "\n"
+        if len(txt.strip()) > 50:
+            return txt
+    except Exception:
+        pass
+
+    # 2: pdf2image + Tesseract
+    if POPPLER_AVAILABLE and TESSERACT_AVAILABLE:
+        try:
+            imgs = convert_from_bytes(data, dpi=300)
+            txt = ""
+            cfg = "--psm 6 --oem 3 -c tessedit_enable_doc_dict=0"
+            for img in imgs:
+                txt += pytesseract.image_to_string(img, lang="eng", config=cfg) + "\n"
+            if len(txt.strip()) > 50:
+                return txt
+        except Exception:
+            pass
+
+    # 3: pdfplumber
+    try:
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            txt = ""
+            for p in pdf.pages:
+                txt += (p.extract_text() or "") + "\n"
+            if len(txt.strip()) > 50:
+                return txt
+    except Exception:
+        pass
+
+    # 4: Single-page PIL OCR
+    if TESSERACT_AVAILABLE:
+        try:
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+            cfg = "--psm 6 --oem 3 -c tessedit_enable_doc_dict=0"
+            return pytesseract.image_to_string(img, lang="eng", config=cfg)
+        except Exception:
+            pass
+
+    return "Could not extract text from PDF. It may be scanned, password-protected, or corrupted."
+
+# ─────────────────────────────────────────────────────────────────────────────
+def extract_text_from_image(file) -> str:
+    """Reads file-like image (PNG/JPG) and returns plain text via Tesseract OCR."""
+    if not TESSERACT_AVAILABLE:
+        return "Error: Tesseract OCR not installed."
+    try:
+        data = file.read() if hasattr(file, "read") else open(file, "rb").read()
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        cfg = "--psm 6 --oem 3 -c tessedit_enable_doc_dict=0"
+        return pytesseract.image_to_string(img, lang="eng", config=cfg)
     except Exception as e:
         return f"Error processing image: {e}"
 
-def detect_gender(text):
+# ─────────────────────────────────────────────────────────────────────────────
+def analyze_text(text: str, gender: str | None = None) -> dict:
     """
-    Detect gender from medical report text.
-    Returns 'male', 'female', or None if not found.
+    1) Auto-detect gender if None
+    2) Extract numeric values via regex
+    3) Compare against NORMAL_RANGES
+    4) Return dict with 'detected_gender' + each key → {value, unit, status, normal_range}
     """
-    # Gender patterns to look for
-    gender_patterns = {
-        'male': [
-            r'(?:gender|sex)[\s:]*male',
-            r'(?:gender|sex)[\s:]*m\b',
-            r'\bmale\b',
-            r'patient[\s:]+mr\.?',
-            r'(?:gender|sex)[\s:]+(?:m|male)',
-        ],
-        'female': [
-            r'(?:gender|sex)[\s:]*female',
-            r'(?:gender|sex)[\s:]*f\b',
-            r'\bfemale\b',
-            r'patient[\s:]+(?:mrs?|ms|miss)\.?',
-            r'(?:gender|sex)[\s:]+(?:f|female)',
-        ]
-    }
-    
-    # Convert text to lowercase for matching
-    text_lower = text.lower()
-    
-    # Check for male patterns
-    for pattern in gender_patterns['male']:
-        if re.search(pattern, text_lower, re.IGNORECASE):
-            print(f"Gender detected: Male (pattern: {pattern})")
-            return 'male'
-    
-    # Check for female patterns
-    for pattern in gender_patterns['female']:
-        if re.search(pattern, text_lower, re.IGNORECASE):
-            print(f"Gender detected: Female (pattern: {pattern})")
-            return 'female'
-    
-    print("Gender not detected from text")
-    return None
-
-def analyze_text(text, gender=None):
-    """
-    Analyzes extracted text for medical values using Regex.
-    gender: 'male', 'female', or None (auto-detect)
-    """
-    # Auto-detect gender if not specified
+    # 1) Gender
     if gender is None:
-        detected_gender = detect_gender(text)
-        gender = detected_gender if detected_gender else 'male'  # Default to male if not detected
-        print(f"Using gender: {gender} (auto-detected: {detected_gender is not None})")
+        gender = detect_gender(text) or "male"
     else:
         gender = gender.lower()
-        print(f"Using specified gender: {gender}")
-    
-    print(f"\n=== ANALYZING TEXT FOR {gender.upper()} ===")
-    print(f"Text length: {len(text)} characters")
-    print(f"=== PATTERN MATCHING ===")
-    
-    # Select gender-specific normal ranges
-    if gender not in ['male', 'female']:
-        gender = 'male'  # default to male if invalid
-    
-    normal_ranges = NORMAL_RANGES[gender]
-    results = {}
-    
-    # Add detected gender to results
-    results['detected_gender'] = gender
-    
-    for key, pattern in patterns.items():
-        print(f"Checking {key} with pattern: {pattern}")
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        print(f"Matches found: {matches}")
-        
-        if matches:
-            try:
-                value = float(matches[0])
-                
-                # Check if parameter exists in normal ranges
-                if key in normal_ranges:
-                    normal_range = normal_ranges[key]['range']
-                    unit = normal_ranges[key]['unit']
-                    
-                    if not (normal_range[0] <= value <= normal_range[1]):
-                        status = "Abnormal"
-                    else:
-                        status = "Normal"
-                    
-                    results[key] = {
-                        'value': value,
-                        'unit': unit,
-                        'status': status,
-                        'normal_range': f"{normal_range[0]} - {normal_range[1]}"
-                    }
-                    print(f"Added result: {key} = {value} ({status})")
-                else:
-                    results[key] = {
-                        'value': value,
-                        'unit': 'unknown',
-                        'status': 'No reference range',
-                        'normal_range': 'N/A'
-                    }
-                    print(f"Added result: {key} = {value} (No reference range)")
-                    
-            except ValueError as e:
-                print(f"Could not convert value to float: {matches[0]}")
-    
-    print(f"=== ANALYSIS COMPLETE ===")
+    gender = gender if gender in NORMAL_RANGES else "male"
+
+    results = {"detected_gender": gender}
+    nr = NORMAL_RANGES[gender]
+
+    # 2) Pattern matching
+    for key, pat in patterns.items():
+        m = re.search(pat, text, re.IGNORECASE)
+        if not m:
+            continue
+        try:
+            val = float(m.group(1))
+        except:
+            continue
+
+        # 3) Normalize & compare
+        if key in nr:
+            lo, hi = nr[key][0]
+            unit = nr[key][1]
+            status = "Normal" if lo <= val <= hi else "Abnormal"
+            results[key] = {
+                "value": val,
+                "unit": unit,
+                "status": status,
+                "normal_range": f"{lo} - {hi}"
+            }
+        else:
+            results[key] = {"value": val, "unit": "N/A", "status": "No range", "normal_range": "N/A"}
+
     return results

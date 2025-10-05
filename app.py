@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import pickle
-from analyzer import process_uploaded_pdf, extract_text_from_image, analyze_text, detect_gender
+from analyzer import extract_metadata, process_uploaded_pdf, extract_text_from_image, analyze_text, detect_gender
 
 # Load the Symptom Checker Model and Encoder
 model = pickle.load(open('disease_model.pkl', 'rb'))
@@ -70,7 +70,24 @@ with tab2:
             st.error(extracted_text)
         else:
             # Detect gender from text
-            detected_gender = detect_gender(extracted_text)
+            # detected_gender = detect_gender(extracted_text)
+
+            # --- NEW STEP: EXTRACT METADATA ---
+            metadata = extract_metadata(extracted_text)
+            detected_gender = metadata['gender']
+            age = metadata['age']
+            
+            st.subheader("Report Summary")
+            
+            col_name, col_lab, col_age = st.columns(3)
+            col_name.metric("Patient Name", metadata['patient_name'])
+            col_lab.metric("Pathology Lab", metadata['pathology_name'])
+
+            with col_age:
+                if age != "N/A":
+                    st.info(f"👤 Age: **{age}** years")  # Display age if available
+                else:
+                    st.info("👤 Age: Not Available")    # Fallback if age is missing
             
             # Show detected gender with override option
             col1, col2 = st.columns([2, 3])
